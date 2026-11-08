@@ -29,6 +29,7 @@ export interface PokemonGene {
 export type Team = PokemonGene[];
 
 const dex = Dex.forFormat('gen9customgame');
+const baseSpeciesCache = new Map<string, string>();
 
 // --- Conversão de/para o Showdown ---------------------------------------------------
 
@@ -81,6 +82,17 @@ export function validateTeam(team: Team, formatid = 'gen9anythinggoes'): string[
 }
 
 // --- Geração (gerador do Showdown) --------------------------------------------------
+
+/**
+ * Lê uma equipa dada pelo utilizador: texto de exportação do Showdown (o que o teambuilder
+ * exporta, várias linhas) ou o formato "packed" (uma linha, com '|').
+ */
+export function teamFromText(text: string): Team {
+  const t = text.trim();
+  const sets = /\n/.test(t) ? Teams.import(t) : Teams.unpack(t);
+  if (!sets || sets.length === 0) throw new Error('equipa inválida: não consegui ler nenhum Pokémon');
+  return sets.map(geneFromSet);
+}
 
 /** Uma equipa gerada pelo Showdown; a mesma seed dá sempre a mesma equipa. */
 export function generateTeam(seed: Seed): Team {
@@ -135,4 +147,14 @@ export function replaceableMoves(gene: PokemonGene): string[] {
 /** Descrição curta para logs. */
 export function describeTeam(team: Team): string {
   return team.map((g) => `${g.species} L${g.level}`).join(', ');
+}
+
+/** Espécie "base" (ex.: Pikachu-Original -> Pikachu); é a chave do Species Clause (sem repetidos numa equipa). */
+export function baseSpeciesOf(species: string): string {
+  let b = baseSpeciesCache.get(species);
+  if (b === undefined) {
+    b = dex.species.get(species).baseSpecies || species;
+    baseSpeciesCache.set(species, b);
+  }
+  return b;
 }
