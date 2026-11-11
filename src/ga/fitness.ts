@@ -31,10 +31,51 @@ export interface EvalResult {
   battles: number;
   /** tempo total (ms) */
   ms: number;
+  /** duração de cada combate (ms), pela ordem em que terminaram */
+  taskMs?: number[];
+  /** distribuição dos custos dos combates */
+  taskStats?: TaskStats;
   /** tempo ocupado de cada worker (ms); só nos avaliadores paralelos */
   workerBusyMs?: number[];
   /** nº de tarefas roubadas a outros workers; só no work-stealing */
   steals?: number;
+}
+
+/** Estatísticas descritivas do custo dos combates. */
+export interface TaskStats {
+  n: number;
+  mean: number;
+  /** desvio-padrão amostral (n-1) */
+  sd: number;
+  /** coeficiente de variação: sd / mean */
+  cv: number;
+  min: number;
+  median: number;
+  max: number;
+  /** cauda: max / mediana (1 = custos uniformes) */
+  maxOverMedian: number;
+}
+
+/** Calcula CV e max/mediana a partir dos tempos por tarefa. */
+export function computeTaskStats(xs: readonly number[]): TaskStats | undefined {
+  if (xs.length === 0) return undefined;
+  const n = xs.length;
+  const mean = xs.reduce((a, b) => a + b, 0) / n;
+  const variance = n > 1 ? xs.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1) : 0;
+  const sd = Math.sqrt(variance);
+  const sorted = [...xs].sort((a, b) => a - b);
+  const median = n % 2 === 1 ? sorted[(n - 1) / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2;
+  const max = sorted[n - 1];
+  return {
+    n,
+    mean,
+    sd,
+    cv: mean > 0 ? sd / mean : 0,
+    min: sorted[0],
+    median,
+    max,
+    maxOverMedian: median > 0 ? max / median : 0,
+  };
 }
 
 /**
@@ -88,18 +129,27 @@ export function createSequentialEvaluator(cfg: SequentialEvaluatorConfig): Evalu
       const K = opts?.battlesPerOpponent ?? cfg.battlesPerOpponent;
       const t0 = performance.now();
       const fitness: number[] = [];
+      const taskMs: number[] = [];
       let battles = 0;
       for (const team of teams) {
         let score = 0;
         for (let j = 0; j < cfg.opponents.length; j++) {
           for (let k = 0; k < K; k++) {
+            const taskT0 = performance.now();
             score += await playTask(team, cfg.opponents[j], battleSeed(cfg.baseSeed, gen, j, k), k, cfg.format);
+            taskMs.push(performance.now() - taskT0);
             battles++;
           }
         }
         fitness.push(score / (cfg.opponents.length * K));
       }
-      return { fitness, battles, ms: performance.now() - t0 };
+      return {
+        fitness,
+        battles,
+        ms: performance.now() - t0,
+        taskMs,
+        taskStats: computeTaskStats(taskMs),
+      };
     },
   };
 }
@@ -277,14 +327,16 @@ export function createFixedEvaluator(cfg: FixedEvaluatorConfig): Evaluator {
 
       const sums = new Array<number>(teams.length).fill(0);
       const workerBusyMs = new Array<number>(workers.length).fill(0);
+      const taskMs: number[] = [];
       let battles = 0;
       for (let w = 0; w < chunks.length; w++) {
         const chunk = chunks[w];
         const res = results[w];
-        if (res.scores.length !== chunk.length) {
+        if (res.scores.length !== chunk.length || res.taskMs.length !== chunk.length) {
           throw new Error(`worker ${w} devolveu ${res.scores.length} pontuações para ${chunk.length} tarefas`);
         }
         for (let i = 0; i < chunk.length; i++) sums[chunk[i].teamIndex] += res.scores[i];
+        taskMs.push(...res.taskMs);
         workerBusyMs[w] = res.ms;
         battles += chunk.length;
       }
@@ -294,6 +346,8 @@ export function createFixedEvaluator(cfg: FixedEvaluatorConfig): Evaluator {
         fitness: sums.map((s) => s / perTeam),
         battles,
         ms: performance.now() - t0,
+        taskMs,
+        taskStats: computeTaskStats(taskMs),
         workerBusyMs,
       };
     },
@@ -355,6 +409,7 @@ export function createStealingEvaluator(cfg: StealingEvaluatorConfig): Evaluator
 
       const sums = new Array<number>(teams.length).fill(0);
       const workerBusyMs = new Array<number>(workers.length).fill(0);
+      const taskMs: number[] = [];
       let battles = 0;
       let steals = 0;
 
@@ -385,10 +440,11 @@ export function createStealingEvaluator(cfg: StealingEvaluatorConfig): Evaluator
             if (!task) return;
 
             const res = await worker.run(gen, [task]);
-            if (res.scores.length !== 1) {
+            if (res.scores.length !== 1 || res.taskMs.length !== 1) {
               throw new Error(`worker ${w} devolveu ${res.scores.length} pontuações para 1 tarefa`);
             }
             sums[task.teamIndex] += res.scores[0];
+            taskMs.push(res.taskMs[0]);
             workerBusyMs[w] += res.ms;
             battles++;
           }
@@ -400,6 +456,8 @@ export function createStealingEvaluator(cfg: StealingEvaluatorConfig): Evaluator
         fitness: sums.map((s) => s / perTeam),
         battles,
         ms: performance.now() - t0,
+        taskMs,
+        taskStats: computeTaskStats(taskMs),
         workerBusyMs,
         steals,
       };

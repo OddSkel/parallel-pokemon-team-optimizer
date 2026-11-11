@@ -9,10 +9,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "run:seq": "tsx src/run.ts --scheduler seq",
-    "tune:cost": "tsx test/tune.ts cost",
-    "tune:noise": "tsx test/tune.ts noise",
-    "tune:grid": "tsx test/tune.ts grid",
-    "tune:converge": "tsx test/converge.ts",
+    "experiments": "tsx test/experiments.ts",
     "dev": "tsx src/run.ts"
   }, 
   "dependencies": {

@@ -29,14 +29,23 @@ port.on('message', async (msg: MasterMessage) => {
         process.exit(0);
 
       case 'eval': {
-        const t0 = performance.now();
+        const batchT0 = performance.now();
         const scores: number[] = new Array(msg.tasks.length);
+        const taskMs: number[] = new Array(msg.tasks.length);
         for (let i = 0; i < msg.tasks.length; i++) {
           const t = msg.tasks[i];
           const seed = battleSeed(baseSeed, msg.gen, t.opponent, t.k);
+          const taskT0 = performance.now();
           scores[i] = await playTask(t.team, opponents[t.opponent], seed, t.k, format);
+          taskMs[i] = performance.now() - taskT0;
         }
-        port.postMessage({ type: 'result', id: msg.id, scores, ms: performance.now() - t0 });
+        port.postMessage({
+          type: 'result',
+          id: msg.id,
+          scores,
+          taskMs,
+          ms: performance.now() - batchT0,
+        });
         return;
       }
     }

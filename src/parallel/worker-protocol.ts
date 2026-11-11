@@ -44,7 +44,9 @@ export interface ResultMessage {
   id: number;
   /** pontuação (1 / 0.5 / 0) de cada tarefa, na mesma ordem de tasks */
   scores: number[];
-  /** tempo de execução dentro do worker (ms) */
+  /** duração de cada tarefa (ms), na mesma ordem de tasks */
+  taskMs: number[];
+  /** tempo total do lote dentro do worker (ms) */
   ms: number;
 }
 

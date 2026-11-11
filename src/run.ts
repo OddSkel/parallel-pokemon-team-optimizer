@@ -6,7 +6,7 @@
 //   npx tsx src/run.ts --scheduler fixed --threads 8 --rep 3
 //
 // O que fica fixo entre execuções (tem de ser igual para comparar schedulers): seed, pop, gens,
-// k, nº de adversários e formato. O que muda: --scheduler e --threads.
+// k e formato. O que muda: --scheduler e --threads.
 import { parseArgs } from 'node:util';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -19,6 +19,7 @@ import {
   createSequentialEvaluator,
   createFixedEvaluator,
   createStealingEvaluator,
+  computeTaskStats,
 } from './ga/fitness';
 import { generateTeam, packTeam, describeTeam } from './teams';
 import { DEFAULT_FORMAT } from './battle';
@@ -57,7 +58,6 @@ async function main() {
       pop: { type: 'string', default: String(DEFAULT_GA_CONFIG.populationSize) },
       gens: { type: 'string', default: String(DEFAULT_GA_CONFIG.generations) },
       k: { type: 'string', default: '4' }, // combates por adversário (par)
-      opponents: { type: 'string', default: '1' },
       seed: { type: 'string', default: String(DEFAULT_GA_CONFIG.baseSeed) },
       rep: { type: 'string', default: '0' }, // nº da repetição (só entra no nome do ficheiro)
       warmup: { type: 'string', default: '1' }, // 0 desliga o aquecimento
@@ -72,7 +72,6 @@ async function main() {
   const threads = intArg('threads', a.threads!, 1);
   const K = intArg('k', a.k!, 2);
   if (K % 2 !== 0) throw new Error('--k tem de ser par (os dois lados jogam o mesmo nº de vezes)');
-  const nOpp = intArg('opponents', a.opponents!, 1);
   const seed = intArg('seed', a.seed!, 0);
   if (seed > 0xffff) throw new Error('--seed tem de estar em 0..65535');
   const validate = intArg('validate', a.validate!, 0);
@@ -85,10 +84,10 @@ async function main() {
     baseSeed: seed,
   };
 
-  // Adversários: determinísticos a partir da seed, iguais em todas as execuções.
-  const opponentTeams = Array.from({ length: nOpp }, (_, j) => generateTeam([seed, j, OPPONENT_TAG, OPPONENT_TAG]));
-  const opponents = opponentTeams.map(packTeam);
-  if (!a.quiet) opponentTeams.forEach((t, j) => console.log(`adversário ${j}: ${describeTeam(t)}`));
+  // Adversário único: determinístico a partir da seed, igual em todas as execuções.
+  const opponentTeam = generateTeam([seed, 0, OPPONENT_TAG, OPPONENT_TAG]);
+  const opponents = [packTeam(opponentTeam)];
+  if (!a.quiet) console.log(`adversário: ${describeTeam(opponentTeam)}`);
 
   const evaluator = makeEvaluator(scheduler, threads, {
     opponents,
@@ -111,9 +110,11 @@ async function main() {
       const busy = s.workerBusyMs;
       const meanBusy = busy && busy.length ? busy.reduce((x, y) => x + y, 0) / busy.length : 0;
       const imb = busy && meanBusy > 0 ? Math.max(...busy) / meanBusy : undefined;
+      const ts = s.taskStats;
       console.log(
         `gen ${String(s.gen).padStart(2)}  best ${s.best.toFixed(3)}  mean ${s.mean.toFixed(3)}  ` +
           `battles ${s.battles}  eval ${s.evalMs.toFixed(0)} ms  serial ${s.serialMs.toFixed(0)} ms` +
+          (ts ? `  cv ${ts.cv.toFixed(2)}  max/med ${ts.maxOverMedian.toFixed(2)}` : '') +
           (imb !== undefined ? `  imb ${imb.toFixed(2)}` : '') +
           (s.steals !== undefined ? `  steals ${s.steals}` : ''),
       );
@@ -132,6 +133,8 @@ async function main() {
     }
 
     const sum = (f: (s: GenerationStats) => number) => res.history.reduce((acc, s) => acc + f(s), 0);
+    // Distribuição global dos custos (todas as gerações), para justificar o H1.
+    const taskStats = computeTaskStats(res.history.flatMap((s) => s.taskMs ?? []));
     const summary = {
       wallMs,
       totalMs: res.totalMs,
@@ -139,15 +142,18 @@ async function main() {
       evalWallMs: sum((s) => s.evalWallMs),
       serialMs: sum((s) => s.serialMs),
       totalBattles: res.totalBattles,
+      taskStats,
       bestFitness: res.bestFitness,
-      bestGen: res.bestGen,
-      best: describeTeam(res.best),
+      bestGeneration: res.bestGen,
+      bestTeam: describeTeam(res.best),
+      // Descrição curta do adversário, para identificar a experiência.
+      opponentTeam: describeTeam(opponentTeam),
       validation,
     };
 
     const cpus = os.cpus();
     const out = {
-      config: { scheduler, threads, K, opponents: nOpp, rep: Number(a.rep), ga: cfg, format: DEFAULT_FORMAT },
+      config: { scheduler, threads, K, rep: Number(a.rep), ga: cfg, format: DEFAULT_FORMAT },
       env: {
         node: process.version,
         platform: `${os.platform()} ${os.release()}`,
@@ -165,7 +171,11 @@ async function main() {
     writeFileSync(file, JSON.stringify(out, null, 2));
     console.log(
       `\n${scheduler} t=${threads}: wall ${(wallMs / 1000).toFixed(2)} s, eval ${(summary.evalMs / 1000).toFixed(2)} s, ` +
-        `serial ${(summary.serialMs / 1000).toFixed(2)} s, ${res.totalBattles} combates -> ${file}`,
+        `serial ${(summary.serialMs / 1000).toFixed(2)} s, ${res.totalBattles} combates` +
+        (taskStats
+          ? `, cv ${taskStats.cv.toFixed(2)}, max/med ${taskStats.maxOverMedian.toFixed(2)} (med ${taskStats.median.toFixed(0)} ms)`
+          : '') +
+        ` -> ${file}`,
     );
     if (validation) console.log(`validação do melhor: ${validation.fitness.toFixed(3)} (${validation.battles} combates)`);
   } finally {

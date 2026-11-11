@@ -7,6 +7,7 @@
 import { Team, generatePopulation, generateGenePool, packTeam } from '../teams';
 import { prngFrom } from '../util/seed';
 import { Evaluator } from './fitness';
+import type { TaskStats } from './fitness';
 import { crossover, mutate, tournamentSelect, MutationParams } from './operators';
 
 export interface GAConfig {
@@ -43,6 +44,10 @@ export interface GenerationStats {
   evalWallMs: number;
   /** parte serial do master: packTeam + seleção + crossover + mutação (ms) */
   serialMs: number;
+  /** duração de cada combate (ms), pela ordem em que terminaram */
+  taskMs?: number[];
+  /** distribuição dos custos dos combates (cv, max/mediana, ...) */
+  taskStats?: TaskStats;
   /** tempo ocupado de cada worker (ms); só nos avaliadores paralelos */
   workerBusyMs?: number[];
   /** nº de tarefas roubadas a outros workers; só no work-stealing */
@@ -133,6 +138,8 @@ export async function runGA(
       evalMs: res.ms,
       evalWallMs,
       serialMs,
+      taskMs: res.taskMs,
+      taskStats: res.taskStats,
       workerBusyMs: res.workerBusyMs,
       steals: res.steals,
     };

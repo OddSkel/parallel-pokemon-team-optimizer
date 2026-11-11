@@ -5,8 +5,7 @@
 
 import { BattleStream, getPlayerStreams } from 'pokemon-showdown';
 import { RandomPlayerAI } from 'pokemon-showdown/sim/tools/random-player-ai';
-
-export type Seed = [number, number, number, number];
+import type { Seed } from './teams';
 
 export interface BattleResult {
   // 0 = vitória da equipa A, 1 = vitória da equipa B, -1 = empate / limite de turnos

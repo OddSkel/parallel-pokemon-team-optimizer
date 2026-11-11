@@ -83,17 +83,6 @@ export function validateTeam(team: Team, formatid = 'gen9anythinggoes'): string[
 
 // --- Geração (gerador do Showdown) --------------------------------------------------
 
-/**
- * Lê uma equipa dada pelo utilizador: texto de exportação do Showdown (o que o teambuilder
- * exporta, várias linhas) ou o formato "packed" (uma linha, com '|').
- */
-export function teamFromText(text: string): Team {
-  const t = text.trim();
-  const sets = /\n/.test(t) ? Teams.import(t) : Teams.unpack(t);
-  if (!sets || sets.length === 0) throw new Error('equipa inválida: não consegui ler nenhum Pokémon');
-  return sets.map(geneFromSet);
-}
-
 /** Uma equipa gerada pelo Showdown; a mesma seed dá sempre a mesma equipa. */
 export function generateTeam(seed: Seed): Team {
   return Teams.generate(GENERATOR_FORMAT, { seed } as any).map(geneFromSet);
