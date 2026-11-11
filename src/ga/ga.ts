@@ -43,6 +43,10 @@ export interface GenerationStats {
   evalWallMs: number;
   /** parte serial do master: packTeam + seleção + crossover + mutação (ms) */
   serialMs: number;
+  /** tempo ocupado de cada worker (ms); só nos avaliadores paralelos */
+  workerBusyMs?: number[];
+  /** nº de tarefas roubadas a outros workers; só no work-stealing */
+  steals?: number;
 }
 
 export interface GAResult {
@@ -129,6 +133,8 @@ export async function runGA(
       evalMs: res.ms,
       evalWallMs,
       serialMs,
+      workerBusyMs: res.workerBusyMs,
+      steals: res.steals,
     };
     history.push(stats);
     onGeneration?.(stats);
